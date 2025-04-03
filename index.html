@@ -77,6 +77,9 @@
         .history-title {
             color: #2c3e50;
             margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         .history-item {
             padding: 10px 0;
@@ -87,10 +90,17 @@
         .number {
             font-weight: bold;
             color: #e74c3c;
+            width: 60px;
+        }
+        .text {
+            flex: 1;
+            padding: 0 10px;
         }
         .time {
             color: #7f8c8d;
             font-size: 0.9em;
+            width: 80px;
+            text-align: right;
         }
         .interval-display {
             text-align: center;
@@ -103,22 +113,6 @@
             color: #7f8c8d;
             margin-top: -10px;
             margin-bottom: 15px;
-        }
-        #quizSection {
-            margin-top: 20px;
-            display: none;
-        }
-        #userAnswer {
-            width: calc(100% - 110px);
-            margin-right: 10px;
-        }
-        #submitAnswer {
-            width: 100px;
-            padding: 10px;
-        }
-        #resultFeedback {
-            margin-top: 10px;
-            min-height: 20px;
         }
         .difficulty-badge {
             display: inline-block;
@@ -138,6 +132,27 @@
             color: #3498db;
             cursor: pointer;
             text-decoration: underline;
+        }
+        #currentNumber {
+            text-align: center;
+            font-size: 1.2em;
+            margin: 20px 0;
+            min-height: 1.5em;
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            margin-top: 15px;
+        }
+        .pagination button {
+            padding: 5px 10px;
+            margin: 0 5px;
+            font-size: 0.9em;
+        }
+        .history-container {
+            max-height: 300px;
+            overflow-y: auto;
+            margin-bottom: 10px;
         }
     </style>
 </head>
@@ -165,22 +180,28 @@
             <div id="voiceTest">测试语音效果</div>
         </div>
         
+        <div id="currentNumber"></div>
+        
         <div class="controls">
             <button id="startBtn">开始训练</button>
             <button id="stopBtn" disabled>停止训练</button>
         </div>
         
-        <div id="quizSection">
-            <div style="display: flex; margin-bottom: 10px;">
-                <input type="number" id="userAnswer" placeholder="输入听到的数字">
-                <button id="submitAnswer">提交答案</button>
-            </div>
-            <div id="resultFeedback"></div>
-        </div>
-        
         <div class="history">
-            <h3 class="history-title">最近练习：</h3>
-            <div id="historyList"></div>
+            <div class="history-title">
+                <h3>最近练习 (共<span id="totalCount">0</span>条)</h3>
+                <div>
+                    <button id="clearHistory" style="padding: 3px 8px; font-size: 0.8em;">清空记录</button>
+                </div>
+            </div>
+            <div class="history-container" id="historyContainer">
+                <div id="historyList"></div>
+            </div>
+            <div class="pagination">
+                <button id="prevPage" disabled>上一页</button>
+                <span id="pageInfo">1/1</span>
+                <button id="nextPage" disabled>下一页</button>
+            </div>
         </div>
     </div>
 
@@ -227,6 +248,7 @@
         const speechEngine = {
             isInitialized: false,
             voice: null,
+            isTesting: false,
             
             async init() {
                 if (this.isInitialized) return;
@@ -235,21 +257,15 @@
                 await this.loadVoices();
                 this.voice = this.getBestVoice();
                 
-                // 显示当前使用的语音
-                if (this.voice) {
-                    console.log("使用语音:", this.voice.name, "语言:", this.voice.lang);
-                }
-                
+                console.log("使用语音:", this.voice?.name || "默认语音");
                 this.isInitialized = true;
             },
             
             loadVoices() {
                 return new Promise(resolve => {
-                    // 如果已经有语音列表，直接返回
                     const voices = window.speechSynthesis.getVoices();
                     if (voices.length > 0) return resolve(voices);
                     
-                    // 否则等待语音加载完成
                     window.speechSynthesis.onvoiceschanged = () => {
                         resolve(window.speechSynthesis.getVoices());
                     };
@@ -259,29 +275,23 @@
             getBestVoice() {
                 const voices = window.speechSynthesis.getVoices();
                 
-                // 优选语音排序（根据实测效果好的引擎）
                 const preferredVoices = [
-                    'Microsoft Helena',    // Edge优质语音
-                    'Google español',     // Chrome优质语音
-                    'Paulina',            // macOS优质语音
-                    'Jorge',              // 男性语音备选
-                    'Monica'              // 巴西葡萄牙语(但西班牙语发音不错)
+                    'Microsoft Helena',    // Edge
+                    'Google español',     // Chrome
+                    'Paulina'            // macOS
                 ];
                 
-                // 查找首选语音
                 for (const name of preferredVoices) {
                     const voice = voices.find(v => v.name.includes(name) && v.lang.startsWith('es'));
                     if (voice) return voice;
                 }
                 
-                // 次选：任何西班牙语女性语音
                 const spanishFemale = voices.find(v => 
                     v.lang.startsWith('es') && 
                     (v.name.includes('Female') || v.name.includes('Mujer'))
                 );
                 if (spanishFemale) return spanishFemale;
                 
-                // 最后选择第一个可用的西班牙语语音
                 return voices.find(v => v.lang.startsWith('es')) || voices[0];
             },
             
@@ -289,36 +299,25 @@
                 if (!this.isInitialized) await this.init();
                 
                 return new Promise((resolve) => {
-                    // 取消之前的语音
                     window.speechSynthesis.cancel();
                     
                     const utterance = new SpeechSynthesisUtterance(text);
                     utterance.lang = 'es-ES';
                     utterance.voice = this.voice;
-                    
-                    // 优化发音参数
                     utterance.rate = this.calculateRate(text.length);
-                    utterance.pitch = 1.1;  // 稍高的音高更自然
-                    utterance.volume = 1.0;
+                    utterance.pitch = 1.1;
                     
-                    // 设备特定优化
                     if (this.isHuaweiDevice()) {
-                        utterance.rate *= 0.8;  // 华为设备放慢语速
+                        utterance.rate *= 0.8;
                     }
                     
-                    // 设置事件处理器
                     utterance.onend = resolve;
-                    utterance.onerror = (e) => {
-                        console.error("语音错误:", e);
-                        resolve();
-                    };
+                    utterance.onerror = resolve;
                     
-                    // 开始发音
                     window.speechSynthesis.speak(utterance);
                 });
             },
             
-            // 根据文本长度计算最佳语速
             calculateRate(textLength) {
                 const baseRate = 0.85;
                 if (textLength > 30) return baseRate * 0.9;
@@ -330,20 +329,26 @@
                 return /huawei|honor|hi3660|emui|harmony/i.test(navigator.userAgent);
             },
             
-            // 测试语音
             async testVoice() {
+                this.isTesting = true;
                 const testTexts = [
                     "Hola", 
                     "Veintitrés", 
                     "Ciento cincuenta y ocho",
-                    "Mil doscientos treinta y cuatro",
-                    "Diez mil novecientos ochenta y siete"
+                    "Mil doscientos treinta y cuatro"
                 ];
                 
                 for (const text of testTexts) {
+                    if (!this.isTesting) break; // 如果停止训练被点击
                     await this.speak(text);
                     await new Promise(resolve => setTimeout(resolve, 1000));
                 }
+                this.isTesting = false;
+            },
+            
+            stopAll() {
+                this.isTesting = false;
+                window.speechSynthesis.cancel();
             }
         };
 
@@ -353,6 +358,17 @@
             intervalId: null,
             history: [],
             currentNumber: null,
+            itemsPerPage: 20,
+            currentPage: 1,
+            
+            init() {
+                // 尝试从本地存储加载历史记录
+                const savedHistory = localStorage.getItem('spanishNumberHistory');
+                if (savedHistory) {
+                    this.history = JSON.parse(savedHistory);
+                    this.updateHistoryDisplay();
+                }
+            },
             
             start() {
                 if (this.isRunning) return;
@@ -360,7 +376,6 @@
                 this.isRunning = true;
                 document.getElementById('startBtn').disabled = true;
                 document.getElementById('stopBtn').disabled = false;
-                document.getElementById('quizSection').style.display = 'block';
                 
                 const difficulty = parseInt(document.getElementById('difficulty').value);
                 const interval = parseFloat(document.getElementById('interval').value) * 1000;
@@ -379,115 +394,111 @@
                 this.isRunning = false;
                 document.getElementById('startBtn').disabled = false;
                 document.getElementById('stopBtn').disabled = true;
-                document.getElementById('quizSection').style.display = 'none';
+                speechEngine.stopAll();
             },
             
             async playNumber(max) {
                 this.currentNumber = this.generateNumber(max);
                 const spanishText = numberToWords(this.currentNumber);
                 
-                await speechEngine.speak(spanishText);
-                this.addToHistory(this.currentNumber);
+                document.getElementById('currentNumber').textContent = 
+                    `${this.currentNumber} - ${spanishText}`;
                 
-                document.getElementById('userAnswer').value = '';
-                document.getElementById('userAnswer').focus();
+                await speechEngine.speak(spanishText);
+                this.addToHistory(this.currentNumber, spanishText);
             },
             
-            // 根据难度生成数字（确保高级模式少出现低范围数字）
             generateNumber(max) {
-                // 普通模式（1-100）：完全随机
-                if (max === 100) {
-                    return Math.floor(Math.random() * 100) + 1;
-                }
-                
-                // 进阶模式（1-1000）：80%概率生成101-1000的数字
-                if (max === 1000) {
-                    if (Math.random() < 0.8) {
-                        return Math.floor(Math.random() * 900) + 101;
-                    }
-                    return Math.floor(Math.random() * 100) + 1;
-                }
-                
-                // 专家模式（1-10000）：90%概率生成1001-10000的数字
-                if (max === 10000) {
-                    if (Math.random() < 0.9) {
-                        return Math.floor(Math.random() * 9000) + 1001;
-                    }
-                    return Math.floor(Math.random() * 1000) + 1;
-                }
-                
-                // 地狱模式（1-100000）：95%概率生成10001-100000的数字
-                if (max === 100000) {
-                    if (Math.random() < 0.95) {
-                        return Math.floor(Math.random() * 90000) + 10001;
-                    }
-                    return Math.floor(Math.random() * 10000) + 1;
-                }
-                
-                // 默认情况
+                if (max === 100) return Math.floor(Math.random() * 100) + 1;
+                if (max === 1000) return Math.random() < 0.8 ? 
+                    Math.floor(Math.random() * 900) + 101 : 
+                    Math.floor(Math.random() * 100) + 1;
+                if (max === 10000) return Math.random() < 0.9 ? 
+                    Math.floor(Math.random() * 9000) + 1001 : 
+                    Math.floor(Math.random() * 1000) + 1;
+                if (max === 100000) return Math.random() < 0.95 ? 
+                    Math.floor(Math.random() * 90000) + 10001 : 
+                    Math.floor(Math.random() * 10000) + 1;
                 return Math.floor(Math.random() * max) + 1;
             },
             
-            checkAnswer() {
-                const userAnswer = parseInt(document.getElementById('userAnswer').value);
-                const feedback = document.getElementById('resultFeedback');
-                
-                if (isNaN(userAnswer)) {
-                    feedback.innerHTML = '<span style="color:red">请输入有效数字</span>';
-                    return;
-                }
-                
-                if (userAnswer === this.currentNumber) {
-                    feedback.innerHTML = '<span style="color:green">✓ 正确! ' + 
-                                        this.currentNumber + ' - ' + 
-                                        numberToWords(this.currentNumber) + '</span>';
-                } else {
-                    feedback.innerHTML = '<span style="color:red">✗ 错误. 正确答案: ' + 
-                                        this.currentNumber + ' - ' + 
-                                        numberToWords(this.currentNumber) + '</span>';
-                }
-                
-                // 2秒后自动清除反馈
-                setTimeout(() => {
-                    feedback.innerHTML = '';
-                }, 2000);
-            },
-            
-            addToHistory(num) {
-                this.history.unshift({
+            addToHistory(num, text) {
+                const newItem = {
                     number: num,
-                    text: numberToWords(num),
-                    time: new Date().toLocaleTimeString()
-                });
+                    text: text,
+                    time: new Date().toLocaleTimeString(),
+                    date: new Date().toISOString()
+                };
                 
-                if (this.history.length > 10) {
+                this.history.unshift(newItem);
+                
+                // 限制历史记录最多500条
+                if (this.history.length > 500) {
                     this.history.pop();
                 }
+                
+                // 保存到本地存储
+                localStorage.setItem('spanishNumberHistory', JSON.stringify(this.history));
                 
                 this.updateHistoryDisplay();
             },
             
+            clearHistory() {
+                this.history = [];
+                localStorage.removeItem('spanishNumberHistory');
+                this.updateHistoryDisplay();
+                this.currentPage = 1;
+            },
+            
             updateHistoryDisplay() {
+                const totalPages = Math.ceil(this.history.length / this.itemsPerPage);
+                const startIdx = (this.currentPage - 1) * this.itemsPerPage;
+                const endIdx = startIdx + this.itemsPerPage;
+                const displayedItems = this.history.slice(startIdx, endIdx);
+                
                 const historyList = document.getElementById('historyList');
                 historyList.innerHTML = '';
                 
-                this.history.forEach(item => {
+                displayedItems.forEach(item => {
                     const div = document.createElement('div');
                     div.className = 'history-item';
                     div.innerHTML = `
                         <span class="number">${item.number}</span>
-                        <span>${item.text}</span>
+                        <span class="text">${item.text}</span>
                         <span class="time">${item.time}</span>
                     `;
                     historyList.appendChild(div);
                 });
+                
+                // 更新分页信息
+                document.getElementById('totalCount').textContent = this.history.length;
+                document.getElementById('pageInfo').textContent = `${this.currentPage}/${totalPages || 1}`;
+                
+                // 更新按钮状态
+                document.getElementById('prevPage').disabled = this.currentPage <= 1;
+                document.getElementById('nextPage').disabled = this.currentPage >= totalPages;
+            },
+            
+            goToPrevPage() {
+                if (this.currentPage > 1) {
+                    this.currentPage--;
+                    this.updateHistoryDisplay();
+                }
+            },
+            
+            goToNextPage() {
+                const totalPages = Math.ceil(this.history.length / this.itemsPerPage);
+                if (this.currentPage < totalPages) {
+                    this.currentPage++;
+                    this.updateHistoryDisplay();
+                }
             }
         };
 
         // 初始化
         document.addEventListener('DOMContentLoaded', async function() {
-            // 初始化语音引擎
             await speechEngine.init();
+            trainer.init();
             
             // 难度描述更新
             const difficultySelect = document.getElementById('difficulty');
@@ -512,14 +523,9 @@
             // 按钮事件
             document.getElementById('startBtn').addEventListener('click', () => trainer.start());
             document.getElementById('stopBtn').addEventListener('click', () => trainer.stop());
-            document.getElementById('submitAnswer').addEventListener('click', () => trainer.checkAnswer());
-            
-            // 回车键提交答案
-            document.getElementById('userAnswer').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    trainer.checkAnswer();
-                }
-            });
+            document.getElementById('clearHistory').addEventListener('click', () => trainer.clearHistory());
+            document.getElementById('prevPage').addEventListener('click', () => trainer.goToPrevPage());
+            document.getElementById('nextPage').addEventListener('click', () => trainer.goToNextPage());
             
             // 语音测试
             document.getElementById('voiceTest').addEventListener('click', () => {
