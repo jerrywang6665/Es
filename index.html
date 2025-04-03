@@ -133,12 +133,6 @@
             cursor: pointer;
             text-decoration: underline;
         }
-        #currentNumber {
-            text-align: center;
-            font-size: 1.2em;
-            margin: 20px 0;
-            min-height: 1.5em;
-        }
         .pagination {
             display: flex;
             justify-content: center;
@@ -153,6 +147,13 @@
             max-height: 300px;
             overflow-y: auto;
             margin-bottom: 10px;
+        }
+        .listening-status {
+            text-align: center;
+            font-size: 1.1em;
+            margin: 20px 0;
+            color: #3498db;
+            font-style: italic;
         }
     </style>
 </head>
@@ -180,7 +181,7 @@
             <div id="voiceTest">测试语音效果</div>
         </div>
         
-        <div id="currentNumber"></div>
+        <div class="listening-status" id="listeningStatus"></div>
         
         <div class="controls">
             <button id="startBtn">开始训练</button>
@@ -376,6 +377,7 @@
                 this.isRunning = true;
                 document.getElementById('startBtn').disabled = true;
                 document.getElementById('stopBtn').disabled = false;
+                document.getElementById('listeningStatus').textContent = "正在播放数字...";
                 
                 const difficulty = parseInt(document.getElementById('difficulty').value);
                 const interval = parseFloat(document.getElementById('interval').value) * 1000;
@@ -394,15 +396,13 @@
                 this.isRunning = false;
                 document.getElementById('startBtn').disabled = false;
                 document.getElementById('stopBtn').disabled = true;
+                document.getElementById('listeningStatus').textContent = "";
                 speechEngine.stopAll();
             },
             
             async playNumber(max) {
                 this.currentNumber = this.generateNumber(max);
                 const spanishText = numberToWords(this.currentNumber);
-                
-                document.getElementById('currentNumber').textContent = 
-                    `${this.currentNumber} - ${spanishText}`;
                 
                 await speechEngine.speak(spanishText);
                 this.addToHistory(this.currentNumber, spanishText);
